@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI Image → 3D Icon Generator (max 5)</title>
+  <style>
+    :root{
+      --bg:#0b1020; --panel:#101735; --panel-2:#0d1330; --text:#e9edf7; --muted:#9fb0d7; --accent:#6ea8ff;
+      --ring:#2a60ff4d; --ok:#42d392; --warn:#ffcc66;
+    }
+    *{box-sizing:border-box}
+    body{margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji"; background: radial-gradient(1200px 800px at 20% -10%, #15204b 0, transparent 60%), linear-gradient(180deg, #0a0f24 0%, #070b1a 100%); color:var(--text)}
+    header{padding:24px 20px; position:sticky; top:0; backdrop-filter:saturate(150%) blur(8px); background:#0a1024cc; z-index:10; border-bottom:1px solid #1a254f}
+    .wrap{max-width:1080px; margin:0 auto;}
+    h1{margin:0 0 6px 0; font-size: clamp(18px, 2vw, 26px); letter-spacing: .2px}
+    p.sub{margin:0; color:var(--muted); font-size:14px}
+
+    main{padding:20px}
+    .grid{display:grid; grid-template-columns: 360px 1fr; gap:22px}
+    @media (max-width: 980px){.grid{grid-template-columns:1fr}}
+
+    .card{background:linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%); border:1px solid #1a254f; border-radius:16px; overflow:hidden; box-shadow: 0 10px 30px #0007}
+    .card h2{font-size:16px; letter-spacing:.2px; margin:0; padding:14px 16px; border-bottom:1px dashed #24306b; color:#cfe0ff}
+    .card .body{padding:14px 16px}
+
+    label{font-size:13px; color:#c7d6ff; display:block; margin:10px 0 6px}
+    input[type="text"], input[type="number"], select{width:100%; padding:10px 12px; background:#0b1433; border:1px solid #2a3a7a; color:var(--text); border-radius:10px; outline:none}
+    input[type="range"]{width:100%}
+    input[type="file"]{width:100%;}
+    .row{display:flex; gap:10px}
+    .row > *{flex:1}
+
+    .btn{appearance:none; border:none; outline:none; background:linear-gradient(180deg,#2b57ff,#2349d9); color:white; padding:12px 16px; border-radius:12px; font-weight:600; cursor:pointer; box-shadow:0 8px 18px #2746ff44, inset 0 1px 0 #7aa2ff; transition: transform .04s ease}
+    .btn:hover{transform:translateY(-1px)}
+    .btn:active{transform:translateY(0)}
+    .btn.secondary{background:#17224d; box-shadow:inset 0 1px 0 #31428a; color:#cfe0ff; border:1px solid #2a3a7a}
+
+    .results{display:grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap:14px; padding:16px}
+    .thumb{position:relative; border-radius:14px; overflow:hidden; background:#0b1433; border:1px solid #22306a}
+    .thumb img{display:block; width:100%; height:auto}
+    .thumb .toolbar{position:absolute; inset:auto 8px 8px 8px; display:flex; gap:8px; justify-content:space-between}
+    .pill{font-size:12px; padding:4px 8px; background:#0e1738cc; border:1px solid #2840a0; color:#cfe0ff; border-radius:999px}
+
+    canvas.preview{width:100%; height:auto; display:block; border-radius:12px; background:transparent}
+    .stage{padding:12px}
+
+    .hint{font-size:12px; color:#9fb0d7}
+    .inline{display:inline-flex; gap:12px; align-items:center}
+    .switch{position:relative; width:42px; height:24px; background:#273365; border-radius:999px; border:1px solid #33438a; cursor:pointer}
+    .switch input{display:none}
+    .knob{position:absolute; top:2px; left:2px; width:20px; height:20px; border-radius:999px; background:#cfe0ff; transition:left .18s ease}
+    .switch input:checked + .knob{left:20px; background:#9bd6ff}
+    footer{padding:24px; text-align:center; color:#8aa0d8; font-size:12px}
+    a{color:#a9c4ff}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <h1>AI Image → 3D Icon Generator</h1>
+      <p class="sub">Upload gambarmu lalu buat sampai <strong>5 varian</strong> ikon 3D siap unduh (PNG, latar transparan/gradien). Semua on‑device tanpa server.</p>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <div class="grid">
+      <!-- Controls -->
+      <section class="card">
+        <h2>Pengaturan</h2>
+        <div class="body">
+          <label for="file">1) Upload gambar (PNG/JPG, disarankan persegi 1024×1024)</label>
+          <input id="file" type="file" accept="image/*" />
+          <div class="hint">Tip: Pakai gambar dengan latar transparan untuk hasil terbaik.</div>
+
+          <label>2) Pilih bentuk ikon</label>
+          <div class="row">
+            <select id="shape">
+              <option value="rounded">Rounded Square</option>
+              <option value="circle">Lingkaran</option>
+              <option value="box">Kotak (flat)</option>
+            </select>
+            <select id="style">
+              <option value="glossy">Glossy</option>
+              <option value="matte">Matte</option>
+              <option value="metal">Metal</option>
+            </select>
+          </div>
+
+          <label>3) Latar & Ukuran</label>
+          <div class="row">
+            <div class="inline" style="gap:8px">
+              <label class="switch" title="Latar transparan">
+                <input id="bgTransparent" type="checkbox" checked />
+                <span class="knob"></span>
+              </label>
+              <span class="hint">PNG Transparan</span>
+            </div>
+            <input id="bgGradient" type="text" placeholder="CSS gradient (opsional)" value="radial-gradient(circle at 30% 20%, #1a3da6, #0a1338 70%)" />
+          </div>
+
+          <label>4) Jumlah varian (maks 5)</label>
+          <div class="row">
+            <input id="count" type="range" min="1" max="5" value="3" />
+            <input id="countNum" type="number" min="1" max="5" value="3" />
+          </div>
+
+          <div class="row" style="margin-top:12px">
+            <button id="btnGen" class="btn">Generate</button>
+            <button id="btnZip" class="btn secondary" disabled>Download ZIP</button>
+          </div>
+          <div style="margin-top:10px" class="hint">Semua proses berjalan di browser. Tidak ada unggahan ke server.</div>
+        </div>
+      </section>
+
+      <!-- Stage + Results -->
+      <section class="card">
+        <h2>Pratinjau</h2>
+        <div class="stage">
+          <canvas id="stage" class="preview"></canvas>
+        </div>
+        <div class="results" id="results"></div>
+      </section>
+    </div>
+  </main>
+
+  <footer>
+    Dibuat dengan <a href="https://threejs.org/" target="_blank" rel="noreferrer">Three.js</a>. Sumber tunggal, siap di‑hosting di GitHub Pages.
+  </footer>
+
+  <!-- External libs for ZIP download -->
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+
+  <!-- Three.js (non-module, global THREE) to avoid import resolver issues in sandboxed envs -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+
+  <script>
+    // ---------- DOM refs
+    const fileEl = document.getElementById('file');
+    const shapeEl = document.getElementById('shape');
+    const styleEl = document.getElementById('style');
+    const bgTransparentEl = document.getElementById('bgTransparent');
+    const bgGradientEl = document.getElementById('bgGradient');
+    const countEl = document.getElementById('count');
+    const countNumEl = document.getElementById('countNum');
+    const btnGen = document.getElementById('btnGen');
+    const btnZip = document.getElementById('btnZip');
+    const resultsEl = document.getElementById('results');
+    const stageCanvas = document.getElementById('stage');
+
+    // Keep slider & number input linked
+    countEl.addEventListener('input', ()=> countNumEl.value = countEl.value);
+    countNumEl.addEventListener('input', ()=> countEl.value = Math.max(1, Math.min(5, +countNumEl.value||1)));
+
+    // ---------- THREE boilerplate (using global THREE)
+    const SIZE = 1024; // output resolution per icon
+    const renderer = new THREE.WebGLRenderer({canvas: stageCanvas, antialias: true, preserveDrawingBuffer:true, alpha:true});
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.setSize(SIZE, SIZE, false);
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(28, 1, 0.1, 100);
+    camera.position.set(0, 0.9, 3.6);
+
+    const root = new THREE.Group();
+    scene.add(root);
+
+    // Lights (will be tweaked per variant)
+    const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+    const key = new THREE.DirectionalLight(0xffffff, 1.0); key.position.set(2,3,4);
+    const rim = new THREE.DirectionalLight(0xffffff, 0.6); rim.position.set(-3, 2, -2);
+    scene.add(ambient, key, rim);
+
+    // Base mesh container
+    let iconGroup = new THREE.Group();
+    root.add(iconGroup);
+
+    // UTIL: build rounded-rectangle extrude geometry (no external modules)
+    function makeRoundedRectExtrude(width=1.6, height=1.6, radius=0.2, depth=0.36){
+      const hw = width/2, hh = height/2, r = Math.min(radius, Math.min(hw, hh));
+      const s = new THREE.Shape();
+      // start at top-right corner arc start
+      s.moveTo(hw - r, hh);
+      s.absarc(hw - r, hh - r, r, Math.PI * 0.5, 0, true);
+      s.absarc(hw - r, -hh + r, r, 0, -Math.PI * 0.5, true);
+      s.absarc(-hw + r, -hh + r, r, -Math.PI * 0.5, -Math.PI, true);
+      s.absarc(-hw + r, hh - r, r, -Math.PI, -Math.PI * 1.5, true);
+      s.absarc(hw - r, hh - r, r, -Math.PI * 1.5, -Math.PI * 2.0, true);
+      const geo = new THREE.ExtrudeGeometry(s, {depth, bevelEnabled:false, steps:1});
+      // center it
+      geo.center();
+      return geo;
+    }
+
+    // Geometry cache
+    const geoRounded = makeRoundedRectExtrude(1.6, 1.6, 0.22, 0.36);
+    const geoFlatBox = new THREE.BoxGeometry(1.6, 1.6, 0.28);
+    const geoCircle = new THREE.CylinderGeometry(0.85, 0.85, 0.36, 128, 1, true);
+
+    // Default materials
+    const matGloss = new THREE.MeshPhysicalMaterial({color: 0x0f1a40, metalness: 0.2, roughness: 0.25, clearcoat: 0.9, clearcoatRoughness: 0.04});
+    const matMatte = new THREE.MeshStandardMaterial({color: 0x0f1a40, metalness: 0.0, roughness: 0.85});
+    const matMetal = new THREE.MeshStandardMaterial({color: 0x8aa4ff, metalness: 0.9, roughness: 0.2});
+
+    const planeGeo = new THREE.PlaneGeometry(1.45, 1.45);
+
+    // State
+    let userTexture = null;
+
+    function pickStyle(){
+      const v = styleEl.value;
+      return v === 'glossy' ? matGloss : v === 'metal' ? matMetal : matMatte;
+    }
+
+    function createIconMesh(texture){
+      // Clear previous
+      iconGroup.clear();
+
+      // Base body by shape
+      const baseMat = pickStyle().clone();
+      let body;
+      if (shapeEl.value === 'rounded') body = new THREE.Mesh(geoRounded, baseMat);
+      else if (shapeEl.value === 'circle') body = new THREE.Mesh(geoCircle, baseMat);
+      else body = new THREE.Mesh(geoFlatBox, baseMat);
+      iconGroup.add(body);
+
+      // Front plate with texture as decal/label
+      const frontMat = new THREE.MeshPhysicalMaterial({map: texture, transparent:true, alphaTest: 0.01, metalness:0, roughness:0.6});
+      const plate = new THREE.Mesh(planeGeo, frontMat);
+      plate.position.z = 0.19; // slightly in front
+      iconGroup.add(plate);
+
+      // Subtle tilt for style
+      iconGroup.rotation.set(THREE.MathUtils.degToRad(-8), THREE.MathUtils.degToRad(15), 0);
+    }
+
+    function setBackground(isTransparent, cssGradient){
+      if (isTransparent){
+        renderer.setClearColor(0x000000, 0);
+        stageCanvas.style.background = 'transparent';
+        scene.background = null;
+      } else {
+        renderer.setClearColor(0x000000, 0);
+        stageCanvas.style.background = cssGradient || 'linear-gradient(180deg,#06102c,#040916)';
+        scene.background = null; // we let CSS paint the gradient
+      }
+    }
+
+    function applyLightingVariant(idx){
+      // A few pleasing presets
+      const variants = [
+        { amb:0.7, key:[2,3,4,1.0], rim:[-3,2,-2,0.6], cam:[0,0.9,3.6] },
+        { amb:0.5, key:[-2,2,4,1.1], rim:[3,1,-3,0.7], cam:[0.2,1.0,3.4] },
+        { amb:0.6, key:[1.5,4,2,1.2], rim:[-2,0.5,-3,0.5], cam:[-0.2,0.8,3.5] },
+        { amb:0.55, key:[3,1.5,2,1.0], rim:[-3,3,-1,0.75], cam:[0.25,0.6,3.8] },
+        { amb:0.65, key:[-3,3,1.5,1.0], rim:[2,1.2,-2.5,0.6], cam:[-0.25,1.2,3.2] },
+      ];
+      const v = variants[idx % variants.length];
+      ambient.intensity = v.amb;
+      key.position.set(v.key[0], v.key[1], v.key[2]); key.intensity = v.key[3];
+      rim.position.set(v.rim[0], v.rim[1], v.rim[2]); rim.intensity = v.rim[3];
+      camera.position.set(v.cam[0], v.cam[1], v.cam[2]);
+      camera.lookAt(0,0,0);
+    }
+
+    function renderOnce(){
+      renderer.render(scene, camera);
+    }
+
+    function dataURLtoBlob(dataUrl){
+      const arr = dataUrl.split(','), mime = arr[0].match(/:(.*?);/)[1];
+      const bstr = atob(arr[1]); let n = bstr.length; const u8arr = new Uint8Array(n);
+      while(n--) u8arr[n] = bstr.charCodeAt(n);
+      return new Blob([u8arr], {type:mime});
+    }
+
+    async function generate(){
+      resultsEl.innerHTML = '';
+      btnZip.disabled = true;
+
+      const file = fileEl.files && fileEl.files[0];
+      if(!file){
+        alert('Silakan upload gambar terlebih dahulu.');
+        return;
+      }
+      const count = Math.max(1, Math.min(5, +countEl.value||1));
+      const isTransparent = bgTransparentEl.checked;
+      const gradient = bgGradientEl.value.trim();
+
+      // Load user texture
+      const img = await fileToImage(file);
+      const tex = new THREE.Texture(img);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.needsUpdate = true;
+      userTexture = tex;
+
+      // Build icon scene
+      createIconMesh(userTexture);
+      setBackground(isTransparent, gradient);
+
+      const zip = new JSZip();
+
+      for (let i=0;i<count;i++){
+        applyLightingVariant(i);
+        renderOnce();
+        // Snapshot
+        const url = renderer.domElement.toDataURL('image/png');
+        const name = `icon_${i+1}.png`;
+        addThumb(url, name, i+1);
+        zip.file(name, dataURLtoBlob(url));
+      }
+
+      // Enable ZIP download
+      btnZip.disabled = false;
+      btnZip.onclick = async ()=>{
+        const blob = await zip.generateAsync({type:'blob'});
+        saveAs(blob, 'icons_3d.zip');
+      };
+    }
+
+    function addThumb(url, name, idx){
+      const wrap = document.createElement('div');
+      wrap.className = 'thumb';
+      const img = document.createElement('img');
+      img.src = url; img.alt = name;
+      const bar = document.createElement('div'); bar.className='toolbar';
+      const left = document.createElement('span'); left.className='pill'; left.textContent = `Varian #${idx}`;
+      const right = document.createElement('a'); right.className='pill'; right.textContent='Download'; right.href=url; right.download=name;
+      bar.append(left, right);
+      wrap.append(img, bar);
+      resultsEl.appendChild(wrap);
+    }
+
+    function fileToImage(file){
+      return new Promise((resolve, reject)=>{
+        const reader = new FileReader();
+        reader.onload = ()=>{
+          const img = new Image();
+          img.onload = ()=> resolve(img);
+          img.onerror = reject;
+          img.src = reader.result;
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    // Live preview background changes
+    bgTransparentEl.addEventListener('change', ()=> setBackground(bgTransparentEl.checked, bgGradientEl.value.trim()));
+    bgGradientEl.addEventListener('input', ()=> setBackground(bgTransparentEl.checked, bgGradientEl.value.trim()));
+
+    // Initial state
+    setBackground(true, '');
+
+    btnGen.addEventListener('click', generate);
+
+    // ------------------------------
+    // Minimal runtime tests (console) – won't affect UI
+    (function runTests(){
+      const tests = [];
+      // Test 1: cap count at 5
+      const cap = (n)=> Math.max(1, Math.min(5, n));
+      tests.push(['cap(6) === 5', cap(6) === 5]);
+      tests.push(['cap(0) === 1', cap(0) === 1]);
+      tests.push(['cap(3) === 3', cap(3) === 3]);
+
+      // Test 2: geometry creation
+      try {
+        const g1 = makeRoundedRectExtrude(1.6,1.6,0.22,0.36);
+        tests.push(['rounded geo has vertices', g1 && g1.attributes && g1.attributes.position.count > 0]);
+        const g2 = new THREE.BoxGeometry(1,1,1);
+        tests.push(['box geo ok', g2.attributes.position.count > 0]);
+      } catch(e){ tests.push(['geometry creation no-throw', false, e]); }
+
+      // Test 3: renderer & canvas exists
+      tests.push(['renderer has DOM element', !!renderer.domElement]);
+
+      const ok = tests.every(t => t[1] === true);
+      if(!ok){
+        console.group('%cRuntime tests FAILED','color:#fff;background:#d33;padding:2px 6px;border-radius:4px');
+        for(const t of tests){ console.log(t[0], '→', t[1], t[2]||''); }
+        console.groupEnd();
+      } else {
+        console.log('%cAll runtime tests passed','color:#0a0;background:#cfc;padding:2px 6px;border-radius:4px');
+      }
+    })();
+  </script>
+</body>
+</html>

@@ -53,6 +53,12 @@
     .switch input:checked + .knob{left:20px; background:#9bd6ff}
     footer{padding:24px; text-align:center; color:#8aa0d8; font-size:12px}
     a{color:#a9c4ff}
+
+    /* Progress bar */
+    #progressWrap{margin-top:10px; display:none}
+    #progressBarTrack{height:8px; background:#17224d; border-radius:6px; overflow:hidden; margin-top:4px; border:1px solid #2a3a7a}
+    #progressBar{height:100%; width:0%; background:#6ea8ff; transition:width .25s ease}
+    #progressText{font-size:13px; color:#cfe0ff}
   </style>
 </head>
 <body>
@@ -110,6 +116,13 @@
             <button id="btnGen" class="btn">Generate</button>
             <button id="btnZip" class="btn secondary" disabled>Download ZIP</button>
           </div>
+
+          <!-- Progress bar UI -->
+          <div id="progressWrap">
+            <div id="progressText">0%</div>
+            <div id="progressBarTrack"><div id="progressBar"></div></div>
+          </div>
+
           <div style="margin-top:10px" class="hint">Semua proses berjalan di browser. Tidak ada unggahan ke server.</div>
         </div>
       </section>
@@ -149,6 +162,11 @@
     const btnZip = document.getElementById('btnZip');
     const resultsEl = document.getElementById('results');
     const stageCanvas = document.getElementById('stage');
+
+    // Progress refs
+    const progressWrap = document.getElementById('progressWrap');
+    const progressBar = document.getElementById('progressBar');
+    const progressText = document.getElementById('progressText');
 
     // Keep slider & number input linked
     countEl.addEventListener('input', ()=> countNumEl.value = countEl.value);
@@ -258,13 +276,6 @@
 
       // Subtle tilt for style
       iconGroup.rotation.set(THREE.MathUtils.degToRad(-8), THREE.MathUtils.degToRad(15), 0);
-    });
-      const plate = new THREE.Mesh(planeGeo, frontMat);
-      plate.position.z = 0.19; // slightly in front
-      iconGroup.add(plate);
-
-      // Subtle tilt for style
-      iconGroup.rotation.set(THREE.MathUtils.degToRad(-8), THREE.MathUtils.degToRad(15), 0);
     }
 
     function setBackground(isTransparent, cssGradient){
@@ -320,73 +331,63 @@
       const isTransparent = bgTransparentEl.checked;
       const gradient = bgGradientEl.value.trim();
 
-      // Load user texture + pre-process for toon
-      const img = await fileToImage(file);
-      const tex = new THREE.Texture(img);
-      tex.colorSpace = THREE.SRGBColorSpace;
-      tex.needsUpdate = true;
-      userTexture = tex;
+      // Lock UI and show progress
+      btnGen.disabled = true; btnGen.textContent = 'Generating...';
+      progressWrap.style.display = 'block';
+      progressBar.style.width = '0%';
+      progressText.textContent = '0%';
 
-      // build a toon-processed variant (posterize+saturate)
-      userTextureToon = await buildToonTextureFrom(img);
+      try {
+        // Load user texture + pre-process for toon
+        const img = await fileToImage(file);
+        const tex = new THREE.Texture(img);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.needsUpdate = true;
+        userTexture = tex;
 
-      // Build icon scene
-      const activeTexture = (styleEl.value === 'disney') ? (userTextureToon || userTexture) : userTexture;
-      createIconMesh(activeTexture);
-      setBackground(isTransparent, gradient);
+        // build a toon-processed variant (posterize+saturate)
+        userTextureToon = await buildToonTextureFrom(img);
 
-      const zip = new JSZip();
+        // Build icon scene
+        const activeTexture = (styleEl.value === 'disney') ? (userTextureToon || userTexture) : userTexture;
+        createIconMesh(activeTexture);
+        setBackground(isTransparent, gradient);
 
-      for (let i=0;i<count;i++){
-        applyLightingVariant(i);
-        renderOnce();
-        // Snapshot
-        const url = renderer.domElement.toDataURL('image/png');
-        const name = `icon_${i+1}.png`;
-        addThumb(url, name, i+1);
-        zip.file(name, dataURLtoBlob(url));
+        const zip = new JSZip();
+
+        for (let i=0;i<count;i++){
+          applyLightingVariant(i);
+          renderOnce();
+
+          // Give the UI a tiny breath so progress animates
+          await new Promise(r => setTimeout(r, 80));
+
+          const percent = Math.round(((i + 1) / count) * 100);
+          progressBar.style.width = percent + '%';
+          progressText.textContent = `Generating ${i + 1} of ${count} — ${percent}%`;
+
+          const url = renderer.domElement.toDataURL('image/png');
+          const name = `icon_${i+1}.png`;
+          addThumb(url, name, i+1);
+          zip.file(name, dataURLtoBlob(url));
+        }
+
+        // Enable ZIP download
+        btnZip.disabled = false;
+        btnZip.onclick = async ()=>{
+          const blob = await zip.generateAsync({type:'blob'});
+          saveAs(blob, 'icons_3d.zip');
+        };
+
+        progressBar.style.width = '100%';
+        progressText.textContent = 'Selesai — 100%';
+      } catch (err){
+        console.error(err);
+        alert('Terjadi kesalahan saat generate. Coba gambar lain atau muat ulang halaman.');
+        progressText.textContent = 'Error';
+      } finally {
+        btnGen.disabled = false; btnGen.textContent = 'Generate';
       }
-
-      // Enable ZIP download
-      btnZip.disabled = false;
-      btnZip.onclick = async ()=>{
-        const blob = await zip.generateAsync({type:'blob'});
-        saveAs(blob, 'icons_3d.zip');
-      };
-    }
-      const count = Math.max(1, Math.min(5, +countEl.value||1));
-      const isTransparent = bgTransparentEl.checked;
-      const gradient = bgGradientEl.value.trim();
-
-      // Load user texture
-      const img = await fileToImage(file);
-      const tex = new THREE.Texture(img);
-      tex.colorSpace = THREE.SRGBColorSpace;
-      tex.needsUpdate = true;
-      userTexture = tex;
-
-      // Build icon scene
-      createIconMesh(userTexture);
-      setBackground(isTransparent, gradient);
-
-      const zip = new JSZip();
-
-      for (let i=0;i<count;i++){
-        applyLightingVariant(i);
-        renderOnce();
-        // Snapshot
-        const url = renderer.domElement.toDataURL('image/png');
-        const name = `icon_${i+1}.png`;
-        addThumb(url, name, i+1);
-        zip.file(name, dataURLtoBlob(url));
-      }
-
-      // Enable ZIP download
-      btnZip.disabled = false;
-      btnZip.onclick = async ()=>{
-        const blob = await zip.generateAsync({type:'blob'});
-        saveAs(blob, 'icons_3d.zip');
-      };
     }
 
     function addThumb(url, name, idx){
@@ -509,13 +510,11 @@
     // Minimal runtime tests (console) – won't affect UI
     (function runTests(){
       const tests = [];
-      // Test 1: cap count at 5
       const cap = (n)=> Math.max(1, Math.min(5, n));
       tests.push(['cap(6) === 5', cap(6) === 5]);
       tests.push(['cap(0) === 1', cap(0) === 1]);
       tests.push(['cap(3) === 3', cap(3) === 3]);
 
-      // Test 2: geometry creation
       try {
         const g1 = makeRoundedRectExtrude(1.6,1.6,0.22,0.36);
         tests.push(['rounded geo has vertices', g1 && g1.attributes && g1.attributes.position.count > 0]);
@@ -523,10 +522,9 @@
         tests.push(['box geo ok', g2.attributes.position.count > 0]);
       } catch(e){ tests.push(['geometry creation no-throw', false, e]); }
 
-      // Test 3: renderer & canvas exists
       tests.push(['renderer has DOM element', !!renderer.domElement]);
 
-      // Disney mode tests added
+      // Disney mode tests
       try {
         styleEl.value = 'disney';
         createIconMesh(new THREE.Texture());
@@ -535,6 +533,9 @@
         const gtex = generateToonGradientTexture(5);
         tests.push(['gradient texture size ok', gtex.image.width === 5 && gtex.image.height === 1]);
       } catch(e){ tests.push(['disney pipeline no-throw', false, e]); }
+
+      // Progress elements exist
+      tests.push(['progress elements present', !!progressWrap && !!progressBar && !!progressText]);
 
       const ok = tests.every(t => t[1] === true);
       if(!ok){

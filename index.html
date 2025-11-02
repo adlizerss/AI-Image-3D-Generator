@@ -84,6 +84,7 @@
               <option value="glossy">Glossy</option>
               <option value="matte">Matte</option>
               <option value="metal">Metal</option>
+              <option value="disney">Disney‑Toon</option>
             </select>
           </div>
 
@@ -207,18 +208,27 @@
 
     // State
     let userTexture = null;
+    let userTextureToon = null; // processed for disney‑toon
 
     function pickStyle(){
       const v = styleEl.value;
-      return v === 'glossy' ? matGloss : v === 'metal' ? matMetal : matMatte;
+      return v === 'glossy' ? matGloss : v === 'metal' ? matMetal : v === 'matte' ? matMatte : 'disney';
     }
 
     function createIconMesh(texture){
       // Clear previous
       iconGroup.clear();
 
+      const chosen = pickStyle();
       // Base body by shape
-      const baseMat = pickStyle().clone();
+      let baseMat;
+      if (chosen === 'disney'){
+        baseMat = new THREE.MeshToonMaterial({color: 0x3a4bcf});
+        baseMat.gradientMap = generateToonGradientTexture(5);
+      } else {
+        baseMat = chosen.clone();
+      }
+
       let body;
       if (shapeEl.value === 'rounded') body = new THREE.Mesh(geoRounded, baseMat);
       else if (shapeEl.value === 'circle') body = new THREE.Mesh(geoCircle, baseMat);
@@ -226,7 +236,29 @@
       iconGroup.add(body);
 
       // Front plate with texture as decal/label
-      const frontMat = new THREE.MeshPhysicalMaterial({map: texture, transparent:true, alphaTest: 0.01, metalness:0, roughness:0.6});
+      let plateMat;
+      if (chosen === 'disney'){
+        plateMat = new THREE.MeshToonMaterial({map: userTextureToon || texture, transparent:true});
+        plateMat.gradientMap = generateToonGradientTexture(6);
+      } else {
+        plateMat = new THREE.MeshPhysicalMaterial({map: texture, transparent:true, alphaTest: 0.01, metalness:0, roughness:0.6});
+      }
+      const plate = new THREE.Mesh(planeGeo, plateMat);
+      plate.position.z = 0.19; // slightly in front
+      iconGroup.add(plate);
+
+      // Outline for toon look (scaled plane behind)
+      if (chosen === 'disney'){
+        const outlineMat = new THREE.MeshBasicMaterial({color: 0x000000, side: THREE.BackSide});
+        const outline = new THREE.Mesh(planeGeo, outlineMat);
+        outline.position.z = 0.18;
+        outline.scale.set(1.04, 1.04, 1.0);
+        iconGroup.add(outline);
+      }
+
+      // Subtle tilt for style
+      iconGroup.rotation.set(THREE.MathUtils.degToRad(-8), THREE.MathUtils.degToRad(15), 0);
+    });
       const plate = new THREE.Mesh(planeGeo, frontMat);
       plate.position.z = 0.19; // slightly in front
       iconGroup.add(plate);
@@ -284,6 +316,44 @@
         alert('Silakan upload gambar terlebih dahulu.');
         return;
       }
+      const count = Math.max(1, Math.min(5, +countEl.value||1));
+      const isTransparent = bgTransparentEl.checked;
+      const gradient = bgGradientEl.value.trim();
+
+      // Load user texture + pre-process for toon
+      const img = await fileToImage(file);
+      const tex = new THREE.Texture(img);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.needsUpdate = true;
+      userTexture = tex;
+
+      // build a toon-processed variant (posterize+saturate)
+      userTextureToon = await buildToonTextureFrom(img);
+
+      // Build icon scene
+      const activeTexture = (styleEl.value === 'disney') ? (userTextureToon || userTexture) : userTexture;
+      createIconMesh(activeTexture);
+      setBackground(isTransparent, gradient);
+
+      const zip = new JSZip();
+
+      for (let i=0;i<count;i++){
+        applyLightingVariant(i);
+        renderOnce();
+        // Snapshot
+        const url = renderer.domElement.toDataURL('image/png');
+        const name = `icon_${i+1}.png`;
+        addThumb(url, name, i+1);
+        zip.file(name, dataURLtoBlob(url));
+      }
+
+      // Enable ZIP download
+      btnZip.disabled = false;
+      btnZip.onclick = async ()=>{
+        const blob = await zip.generateAsync({type:'blob'});
+        saveAs(blob, 'icons_3d.zip');
+      };
+    }
       const count = Math.max(1, Math.min(5, +countEl.value||1));
       const isTransparent = bgTransparentEl.checked;
       const gradient = bgGradientEl.value.trim();
@@ -346,6 +416,86 @@
       });
     }
 
+    function generateToonGradientTexture(steps=5){
+      steps = Math.max(2, Math.min(8, steps|0));
+      const size = steps;
+      const data = new Uint8Array(size);
+      for(let i=0;i<size;i++){ data[i] = Math.round(255 * (i/(size-1))); }
+      const tex = new THREE.DataTexture(data, size, 1, THREE.LuminanceFormat);
+      tex.needsUpdate = true;
+      return tex;
+    }
+
+    async function buildToonTextureFrom(image){
+      const c = document.createElement('canvas');
+      const w = image.naturalWidth || 1024, h = image.naturalHeight || 1024;
+      c.width = w; c.height = h;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(image, 0, 0, w, h);
+
+      // Basic cartoonify: slight blur → posterize → boost saturation/gamma
+      try{ ctx.filter = 'blur(0.6px)'; ctx.drawImage(c, 0, 0); ctx.filter = 'none'; }catch(e){}
+
+      const imgData = ctx.getImageData(0,0,w,h);
+      const d = imgData.data;
+      const levels = 6; // posterize levels
+      for(let i=0;i<d.length;i+=4){
+        let r=d[i]/255, g=d[i+1]/255, b=d[i+2]/255;
+        r = Math.pow(r, 0.9); g = Math.pow(g, 0.9); b = Math.pow(b, 0.9);
+        r = Math.round(r*(levels-1))/(levels-1);
+        g = Math.round(g*(levels-1))/(levels-1);
+        b = Math.round(b*(levels-1))/(levels-1);
+        const maxc = Math.max(r,g,b), minc = Math.min(r,g,b);
+        const l = (maxc+minc)/2, gray=l;
+        r = gray + (r-gray) * 1.2; g = gray + (g-gray) * 1.2; b = gray + (b-gray) * 1.2;
+        d[i] = Math.max(0, Math.min(255, Math.round(r*255)));
+        d[i+1] = Math.max(0, Math.min(255, Math.round(g*255)));
+        d[i+2] = Math.max(0, Math.min(255, Math.round(b*255)));
+      }
+      ctx.putImageData(imgData,0,0);
+
+      // Edge outline: Sobel on luminance
+      const sobel = ctx.getImageData(0,0,w,h);
+      const sd = sobel.data;
+      const lum = new Float32Array(w*h);
+      for(let y=0; y<h; y++){
+        for(let x=0; x<w; x++){
+          const idx = (y*w + x)*4;
+          lum[y*w+x] = 0.2126*sd[idx] + 0.7152*sd[idx+1] + 0.0722*sd[idx+2];
+        }
+      }
+      const out = ctx.createImageData(w,h);
+      const od = out.data;
+      const kx = [-1,0,1,-2,0,2,-1,0,1];
+      const ky = [-1,-2,-1,0,0,0,1,2,1];
+      for(let y=1; y<h-1; y++){
+        for(let x=1; x<w-1; x++){
+          let gx=0, gy=0, p=0;
+          for(let j=-1;j<=1;j++){
+            for(let i=-1;i<=1;i++){
+              p = lum[(y+j)*w + (x+i)];
+              gx += p * kx[(j+1)*3 + (i+1)];
+              gy += p * ky[(j+1)*3 + (i+1)];
+            }
+          }
+          const g = Math.min(255, Math.hypot(gx,gy));
+          const idx = (y*w + x)*4;
+          od[idx] = od[idx+1] = od[idx+2] = 0;
+          od[idx+3] = Math.max(0, Math.min(255, g*0.6));
+        }
+      }
+      const edgeCanvas = document.createElement('canvas'); edgeCanvas.width=w; edgeCanvas.height=h;
+      const ectx = edgeCanvas.getContext('2d');
+      ectx.putImageData(out,0,0);
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.drawImage(edgeCanvas,0,0);
+
+      const toonTex = new THREE.Texture(c);
+      toonTex.colorSpace = THREE.SRGBColorSpace;
+      toonTex.needsUpdate = true;
+      return toonTex;
+    }
+
     // Live preview background changes
     bgTransparentEl.addEventListener('change', ()=> setBackground(bgTransparentEl.checked, bgGradientEl.value.trim()));
     bgGradientEl.addEventListener('input', ()=> setBackground(bgTransparentEl.checked, bgGradientEl.value.trim()));
@@ -375,6 +525,16 @@
 
       // Test 3: renderer & canvas exists
       tests.push(['renderer has DOM element', !!renderer.domElement]);
+
+      // Disney mode tests added
+      try {
+        styleEl.value = 'disney';
+        createIconMesh(new THREE.Texture());
+        const hasOutline = iconGroup.children.some(m => m.material && m.material.isMeshBasicMaterial);
+        tests.push(['disney outline added', hasOutline === true]);
+        const gtex = generateToonGradientTexture(5);
+        tests.push(['gradient texture size ok', gtex.image.width === 5 && gtex.image.height === 1]);
+      } catch(e){ tests.push(['disney pipeline no-throw', false, e]); }
 
       const ok = tests.every(t => t[1] === true);
       if(!ok){
